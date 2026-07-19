@@ -1,0 +1,46 @@
+name: Control API conformance
+
+# Builds x16emu (R49 Makefile build) and asserts it implements the
+# retro-remote-debug-controller HTTP contract (the conformance suite ships in
+# the submodule). Runs headless via SDL's dummy video driver — no display.
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+
+concurrency:
+  group: conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build + test deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential make libsdl2-dev zlib1g-dev python-is-python3 python3-venv
+          python3 -m venv .venv
+          ./.venv/bin/pip install --quiet pytest
+
+      - name: Build x16emu
+        run: make
+
+      - name: Generate a dummy ROM
+        # Conformance exercises the control API, not ROM behaviour, so a
+        # zero-filled ROM of the right size is enough to run the machine.
+        run: truncate -s 262144 rom.bin
+
+      - name: Run conformance suite
+        working-directory: src/extern/retro-remote-debug-controller/conformance
+        env:
+          RRDC_PORT: "8080"
+          RRDC_BOOT_TIMEOUT: "30"
+          RRDC_EMU_CMD: "SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ${{ github.workspace }}/x16emu -rom ${{ github.workspace }}/rom.bin -warp -controlport {port}"
+        run: ${{ github.workspace }}/.venv/bin/python -m pytest -v
