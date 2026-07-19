@@ -576,6 +576,21 @@ screenshot(void)
 }
 #endif
 
+/* Control API accessors (retro-remote-debug-controller). */
+const uint8_t *
+video_get_framebuffer(int *width, int *height)
+{
+	if (width) *width = SCREEN_WIDTH;
+	if (height) *height = SCREEN_HEIGHT;
+	return framebuffer;
+}
+
+uint32_t
+video_get_frame_count(void)
+{
+	return (uint32_t)frame_count;
+}
+
 struct video_sprite_properties sprite_properties[128];
 
 static void

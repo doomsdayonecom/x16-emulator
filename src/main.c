@@ -43,6 +43,9 @@
 #include "testbench.h"
 #include "cartridge.h"
 #include "midi.h"
+#include "retro_control.h"
+
+int x16_control_start(int port);   // control_backend.c
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -104,6 +107,7 @@ bool dump_cpu = false;
 bool dump_ram = true;
 bool dump_bank = true;
 bool dump_vram = false;
+int control_port = 0;   // retro-remote-debug-controller HTTP port (0 = off)
 bool warp_mode = false;
 bool warp_pastes = false;
 bool grab_mouse = false;
@@ -714,6 +718,15 @@ main(int argc, char **argv)
 			argc--;
 			argv++;
 			fs_midi_in_connect = true;
+		} else if (!strcmp(argv[0], "-controlport")) {
+			argc--;
+			argv++;
+			if (!argc || argv[0][0] == '-') {
+				usage();
+			}
+			control_port = (int)strtol(argv[0], NULL, 0);
+			argc--;
+			argv++;
 		} else if (!strcmp(argv[0], "-run")) {
 			argc--;
 			argv++;
@@ -1286,6 +1299,10 @@ main(int argc, char **argv)
 
 	instruction_counter = 0;
 
+	if (control_port > 0) {
+		x16_control_start(control_port);
+	}
+
 #ifdef __EMSCRIPTEN__
 	emscripten_cancel_main_loop();
 	emscripten_set_main_loop(emscripten_main_loop, 0, 1);
@@ -1587,6 +1604,12 @@ emulator_loop(void *param)
 	for (;;) {
 		if (smc_requested_reset) machine_reset();
 
+		retro_control_service();
+		if (!retro_control_running()) {
+			SDL_Delay(1);
+			continue;
+		}
+
 		if (testbench && regs.pc == 0xfffd){
 			testbench_init();
 		}
@@ -1727,6 +1750,10 @@ emulator_loop(void *param)
 		}
 		if (!headless) {
 			new_frame |= video_step(MHZ, clocks, false);
+		}
+
+		if (new_frame) {
+			retro_control_on_frame();
 		}
 
 		for (uint32_t i = 0; i < clocks; i++) {

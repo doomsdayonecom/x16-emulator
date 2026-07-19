@@ -16,9 +16,9 @@ else ifeq ($(OS),Windows_NT)
 	TARGET_WIN32=yes
 endif
 
-CFLAGS=-std=c11 -O3 -Wall -Werror -g $(shell $(SDL2CONFIG) --cflags) -Isrc/extern/include
+CFLAGS=-std=c11 -O3 -Wall -Werror -g $(shell $(SDL2CONFIG) --cflags) -Isrc/extern/include -Isrc/extern/retro-remote-debug-controller/core -pthread
 CXXFLAGS=-std=c++17 -O3 -Wall -Werror -Isrc/extern/ymfm/src
-LDFLAGS=$(shell $(SDL2CONFIG) --libs) -lm -lz
+LDFLAGS=$(shell $(SDL2CONFIG) --libs) -lm -lz -pthread
 
 ifdef ADDL_INCLUDE
 	CFLAGS+=-I$(ADDL_INCLUDE)
@@ -87,6 +87,8 @@ endif
 
 _X16_OBJS = cpu/fake6502.o memory.o disasm.o video.o i2c.o smc.o rtc.o via.o serial.o ieee.o vera_spi.o audio.o vera_pcm.o vera_psg.o sdcard.o main.o debugger.o javascript_interface.o joystick.o rendertext.o keyboard.o icon.o timing.o wav_recorder.o testbench.o files.o cartridge.o iso_8859_15.o ymglue.o midi.o
 _X16_OBJS += extern/ymfm/src/ymfm_opm.o
+# retro-remote-debug-controller: x16 backend + portable server core (submodule)
+_X16_OBJS += control_backend.o extern/retro-remote-debug-controller/core/retro_control.o
 
 ifdef TARGET_WIN32
 	_X16_OBJS += video_win32.o
