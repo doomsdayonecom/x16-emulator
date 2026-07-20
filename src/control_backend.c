@@ -5,9 +5,10 @@
 #include "retro_control.h"
 
 #include "glue.h"     /* struct regs regs; machine_reset() */
-#include "memory.h"   /* debug_read6502, memory_get_ram_bank/rom_bank */
+#include "memory.h"   /* debug_read6502, write6502, memory_get/set_ram_bank */
 #include "video.h"    /* video_get_framebuffer, video_get_frame_count */
 #include "keyboard.h" /* handle_keyboard (input injection) */
+#include "audio.h"    /* audio_capture_drain, AUDIO_SAMPLERATE */
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -24,6 +25,27 @@ x16_read_mem(uint32_t addr, int32_t bank, uint32_t len, uint8_t *out, uint32_t c
 		uint16_t a = (uint16_t)(addr + i);
 		out[n++] = debug_read6502(a, 0, x16bank);
 	}
+	return n;
+}
+
+/* 0.3: debug-write (poke). bank<0 => current. Skips ROM ($C000+). Uses the CPU
+ * write path — intended for RAM/state; I/O ($9Fxx) writes trigger devices. */
+static uint32_t
+x16_write_mem(uint32_t addr, int32_t bank, uint32_t len, const uint8_t *in)
+{
+	uint8_t saved = memory_get_ram_bank();
+	if (bank >= 0) {
+		memory_set_ram_bank((uint8_t)bank);
+	}
+	uint32_t n = 0;
+	for (; n < len; n++) {
+		uint16_t a = (uint16_t)(addr + n);
+		if (a >= 0xC000) {          /* ROM: not writable */
+			break;
+		}
+		write6502(a, 0, in[n]);
+	}
+	memory_set_ram_bank(saved);
 	return n;
 }
 
@@ -97,6 +119,15 @@ x16_reset(void)
 	machine_reset();
 }
 
+/* 0.3: drain the mixed audio the emulator has synthesised since the last call. */
+static uint32_t
+x16_capture_audio(int16_t *out, uint32_t cap, int *rate, int *channels, uint32_t *dropped)
+{
+	*rate = AUDIO_SAMPLERATE;
+	*channels = 2;
+	return audio_capture_drain(out, cap, dropped);
+}
+
 static const retro_control_backend_t x16_backend = {
 	.platform        = "x16",
 	.emulator        = "x16emu",
@@ -106,6 +137,8 @@ static const retro_control_backend_t x16_backend = {
 	.get_frame_count = x16_get_frame_count,
 	.inject_key      = x16_inject_key,
 	.reset           = x16_reset,
+	.write_mem       = x16_write_mem,
+	.capture_audio   = x16_capture_audio,
 };
 
 int

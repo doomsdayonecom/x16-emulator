@@ -90,6 +90,40 @@ static int16_t pcm_buf[2 * SAMPLES_PER_BUFFER];
 static int16_t ym_buf[2 * SAMPLES_PER_BUFFER];
 static int16_t fs_buf[2 * SAMPLES_PER_BUFFER];
 
+/* --- Control-API audio capture (retro-remote-debug-controller) -------------
+ * The final mixed stereo output is teed into this ring and drained by
+ * GET /audio. Push (from audio_render) and drain (from the control service)
+ * both run on the emulator thread, so no locking is needed. */
+#define AUDIO_CAP_RING (1u << 18)           /* 256K int16 (~2.7 s stereo @48.8k) */
+static int16_t  audio_cap_ring[AUDIO_CAP_RING];
+static uint32_t audio_cap_wr = 0, audio_cap_rd = 0, audio_cap_dropped = 0;
+
+void
+audio_capture_push(const int16_t *s, uint32_t n)
+{
+	for (uint32_t i = 0; i < n; i++) {
+		uint32_t next = (audio_cap_wr + 1) & (AUDIO_CAP_RING - 1);
+		if (next == audio_cap_rd) {          /* full: drop oldest */
+			audio_cap_rd = (audio_cap_rd + 1) & (AUDIO_CAP_RING - 1);
+			audio_cap_dropped++;
+		}
+		audio_cap_ring[audio_cap_wr] = s[i];
+		audio_cap_wr = next;
+	}
+}
+
+uint32_t
+audio_capture_drain(int16_t *out, uint32_t cap, uint32_t *dropped)
+{
+	uint32_t n = 0;
+	while (n < cap && audio_cap_rd != audio_cap_wr) {
+		out[n++] = audio_cap_ring[audio_cap_rd];
+		audio_cap_rd = (audio_cap_rd + 1) & (AUDIO_CAP_RING - 1);
+	}
+	if (dropped) { *dropped = audio_cap_dropped; audio_cap_dropped = 0; }
+	return n;
+}
+
 uint32_t host_sample_rate = 0;
 
 static void
@@ -396,12 +430,14 @@ audio_render()
 		fs_samp_pos_rd = (fs_samp_pos_rd + fs_samps_per_host_samps) & SAMP_POS_MASK_FRAC;
 		if (wridx == buffer_size) {
 			wav_recorder_process(&buffer[wridx_old], (buffer_size - wridx_old) / 2);
+			audio_capture_push(&buffer[wridx_old], buffer_size - wridx_old);
 			wridx = 0;
 			wridx_old = 0;
 		}
 	}
 	if ((wridx - wridx_old) > 0) {
 		wav_recorder_process(&buffer[wridx_old], (wridx - wridx_old) / 2);
+		audio_capture_push(&buffer[wridx_old], wridx - wridx_old);
 	}
 	buffer_written += len * 2;
 	if (buffer_written > buffer_size) {
