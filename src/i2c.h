@@ -33,6 +33,7 @@ uint8_t i2c_mse_buffer_count();
 // fake mouse
 void mouse_button_down(int num);
 void mouse_button_up(int num);
+uint8_t mouse_get_buttons(void);
 void mouse_move(int x, int y);
 uint8_t mouse_read(uint8_t reg);
 void mouse_send_state(void);

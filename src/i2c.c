@@ -338,7 +338,8 @@ mouse_send_state(void)
 		mouse_diff_x -= send_diff_x;
 		mouse_diff_y -= send_diff_y;
 		wheel = 0;
-	} while (mouse_diff_x != 0 && mouse_diff_y != 0);
+	} while (mouse_diff_x != 0 || mouse_diff_y != 0);   /* flush BOTH axes (was &&:
+	                              a single-axis residual was left undelivered) */
 }
 
 void
@@ -351,6 +352,12 @@ void
 mouse_button_up(int num)
 {
 	buttons &= (1 << num) ^ 0xff;
+}
+
+uint8_t
+mouse_get_buttons(void)
+{
+	return buttons;   /* bit0 = left/primary, bit1 = right/secondary, bit2 = middle */
 }
 
 void

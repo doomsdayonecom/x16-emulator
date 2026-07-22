@@ -14,6 +14,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+/* RRDC (control_backend.c): tee each mixed stereo pair into the /audio ring. */
+void x16_control_push_audio(int16_t l, int16_t r);
+
 #ifdef __EMSCRIPTEN__
 	#define SAMPLES_PER_BUFFER (1024)
 	#define SAMP_POS_FRAC_BITS (22)
@@ -390,6 +393,7 @@ audio_render()
 		}
 		buffer[wridx++] = (int16_t)((mix_l * limiter_amp) >> 16);
 		buffer[wridx++] = (int16_t)((mix_r * limiter_amp) >> 16);
+		x16_control_push_audio(buffer[wridx - 2], buffer[wridx - 1]);  /* RRDC /audio tee */
 		if (limiter_amp < (1 << 16)) limiter_amp++;
 		vera_samp_pos_rd = (vera_samp_pos_rd + vera_samps_per_host_samps) & SAMP_POS_MASK_FRAC;
 		ym_samp_pos_rd = (ym_samp_pos_rd + ym_samps_per_host_samps) & SAMP_POS_MASK_FRAC;
