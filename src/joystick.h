@@ -23,4 +23,22 @@ void joystick_button_up(int instance_id, uint8_t button);
 void joystick_set_latch(bool value);
 void joystick_set_clock(bool value);
 
+/* --- Virtual pads, for the RRDC control port (contract 0.5) ----------
+ *
+ * A harness has no SDL controller to plug in, so it asks for one to be
+ * synthesised in a joystick slot. `mask` is the X16's own SNES bit
+ * order and is ACTIVE LOW, exactly like joystick_info::button_mask —
+ * converting from RRDC's canonical layout is the caller's job, not
+ * this layer's.
+ *
+ * A virtual pad is a LEVEL, not an event: what it holds persists across
+ * frames until set again, which is what makes "hold RIGHT for 60
+ * frames" expressible. Returns false if `slot` is out of range. */
+bool joystick_virtual_set(int slot, bool connected, bool set_buttons, uint16_t mask);
+
+/* Read back what is present in `slot` — a virtual pad OR a real one, so
+ * a harness can tell "no controller at all" from "controller present,
+ * nothing held". Returns false if `slot` is out of range. */
+bool joystick_virtual_get(int slot, bool *connected, uint16_t *mask);
+
 #endif

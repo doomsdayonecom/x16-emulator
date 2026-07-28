@@ -10,6 +10,7 @@
 #include "keyboard.h" /* handle_keyboard (input injection) */
 #include "i2c.h"      /* mouse_move / mouse_button_* / mouse_send_state (pointer) */
 #include "audio.h"    /* AUDIO_SAMPLERATE */
+#include "joystick.h" /* joystick_virtual_set / joystick_virtual_get (pads) */
 
 #include <SDL.h>
 #include <stdbool.h>
@@ -196,6 +197,72 @@ x16_get_pointer(int32_t *x, int32_t *y, int *buttons)
 	return 1;
 }
 
+/* --- Pads (contract 0.5) ---------------------------------------------
+ *
+ * RRDC fixes ONE canonical layout across every platform, so a test
+ * written against one machine reads the same on another:
+ *
+ *   bit  0    1     2   3     4  5  6  7  8      9       10  11
+ *        LEFT RIGHT UP  DOWN  A  B  X  Y  START  SELECT  L   R
+ *
+ * The X16's SNES pad disagrees on both counts — its own bit order is
+ * A X SELECT START UP DOWN LEFT RIGHT B Y L R, and its mask is ACTIVE
+ * LOW. Converting here is exactly what the spec asks of a backend
+ * whose hardware differs; the harness never learns about it. */
+static const uint8_t pad_canon_to_x16[12] = {
+	6,  /* LEFT   */ 7,  /* RIGHT  */ 4,  /* UP     */ 5,  /* DOWN   */
+	0,  /* A      */ 8,  /* B      */ 1,  /* X      */ 9,  /* Y      */
+	3,  /* START  */ 2,  /* SELECT */ 10, /* L      */ 11, /* R      */
+};
+
+static uint16_t
+pad_canon_to_mask(int buttons)
+{
+	uint16_t mask = 0xffff;                  /* active low: nothing held */
+	for (int b = 0; b < 12; ++b) {
+		if (buttons & (1 << b)) {
+			mask &= (uint16_t)~(1u << pad_canon_to_x16[b]);
+		}
+	}
+	return mask;
+}
+
+static int
+pad_mask_to_canon(uint16_t mask)
+{
+	int buttons = 0;
+	for (int b = 0; b < 12; ++b) {
+		if ((mask & (1u << pad_canon_to_x16[b])) == 0) {   /* 0 == held */
+			buttons |= (1 << b);
+		}
+	}
+	return buttons;
+}
+
+static int
+x16_set_pad(int index, int buttons, int connected)
+{
+	/* buttons < 0 => presence-only change, leave the held mask alone. */
+	return joystick_virtual_set(index, connected != 0, buttons >= 0,
+	                            pad_canon_to_mask(buttons < 0 ? 0 : buttons))
+	           ? 1
+	           : 0;
+}
+
+static int
+x16_get_pad(int index, int *buttons, int *connected)
+{
+	bool     present = false;
+	uint16_t mask    = 0xffff;
+
+	if (!joystick_virtual_get(index, &present, &mask)) {
+		return 0;
+	}
+	*connected = present ? 1 : 0;
+	*buttons   = pad_mask_to_canon(mask);
+	return 1;
+}
+
 static const retro_control_backend_t x16_backend = {
 	.platform        = "x16",
 	.emulator        = "x16emu",
@@ -209,6 +276,8 @@ static const retro_control_backend_t x16_backend = {
 	.capture_audio   = x16_capture_audio,
 	.set_pointer     = x16_set_pointer,
 	.get_pointer     = x16_get_pointer,
+	.set_pad         = x16_set_pad,
+	.get_pad         = x16_get_pad,
 };
 
 int

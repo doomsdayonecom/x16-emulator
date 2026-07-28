@@ -255,3 +255,84 @@ joystick_set_clock(bool value)
 		do_shift();
 	}
 }
+
+/* --- Virtual pads, for the RRDC control port (contract 0.5) ----------
+ *
+ * A harness driving the machine over HTTP has no SDL controller to
+ * plug in, so it asks for one to be synthesised. The synthetic pad is
+ * an ordinary entry in Joystick_controllers with no SDL device behind
+ * it: everything downstream — latch, shift, Joystick_data — treats it
+ * exactly like real hardware, which is the point. Nothing in the
+ * read path learns that a pad is virtual.
+ *
+ * Instance ids come from a range SDL cannot produce (SDL hands out
+ * small ascending ints), so a virtual pad and a real one can coexist
+ * without ever colliding in find_joystick_controller().
+ * ------------------------------------------------------------------ */
+
+#define JOY_VIRTUAL_ID_BASE (1 << 24)
+
+bool
+joystick_virtual_set(int slot, bool connected, bool set_buttons, uint16_t mask)
+{
+	if (slot < 0 || slot >= NUM_JOYSTICKS) {
+		return false;
+	}
+
+	const int vid = JOY_VIRTUAL_ID_BASE + slot;
+
+	if (!connected) {
+		if (Joystick_slots[slot] == vid) {
+			Joystick_slots[slot] = -1;
+		}
+		remove_joystick_controller(vid);
+		return true;
+	}
+
+	struct joystick_info *joy = find_joystick_controller(vid);
+	if (joy == NULL) {
+		struct joystick_info new_info;
+		new_info.instance_id = vid;
+		new_info.controller  = NULL;    /* no SDL device behind it */
+		new_info.button_mask = 0xffff;  /* active low: nothing held */
+		new_info.shift_mask  = 0;
+		add_joystick_controller(&new_info);
+		joy = find_joystick_controller(vid);
+		if (joy == NULL) {
+			return false;
+		}
+	}
+
+	if (set_buttons) {
+		joy->button_mask = mask;
+	}
+
+	/* Presenting a pad implies its slot is live: a harness that had to
+	 * remember -joy1 on the command line as well would be a trap. */
+	Joystick_slots_enabled[slot] = true;
+	Joystick_slots[slot]         = vid;
+	return true;
+}
+
+bool
+joystick_virtual_get(int slot, bool *connected, uint16_t *mask)
+{
+	if (slot < 0 || slot >= NUM_JOYSTICKS) {
+		return false;
+	}
+
+	const int id = Joystick_slots[slot];
+	if (id < 0) {
+		*connected = false;
+		*mask      = 0xffff;
+		return true;
+	}
+
+	/* Deliberately not restricted to virtual ids: a real controller
+	 * bound to this slot reads back the same way, so a test can assert
+	 * on input regardless of how it got there. */
+	struct joystick_info *joy = find_joystick_controller(id);
+	*connected = (joy != NULL);
+	*mask      = (joy != NULL) ? joy->button_mask : 0xffff;
+	return true;
+}
