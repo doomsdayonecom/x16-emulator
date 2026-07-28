@@ -3,7 +3,9 @@ on: [push, pull_request]
 
 jobs:
   README:
-    runs-on: ubuntu-22.04
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-22.04
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -195,7 +197,9 @@ jobs:
           path: emu_binaries/*
   build-linux-x86_64:
     needs: [README]
-    runs-on: ubuntu-22.04
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-22.04
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -246,7 +250,9 @@ jobs:
           path: emu_binaries/*
   build-linux-aarch64:
     needs: [README]
-    runs-on: ubuntu-22.04
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-22.04
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -304,7 +310,9 @@ jobs:
           path: emu_binaries/*
   build-linux-armhf:
     needs: [README]
-    runs-on: ubuntu-22.04
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-22.04
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -458,7 +466,9 @@ jobs:
           name: x16emu_macos_m1
           path: emu_binaries/*
   build-wasm:
-    runs-on: ubuntu-latest
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-latest
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - uses: actions/checkout@v4
         with:

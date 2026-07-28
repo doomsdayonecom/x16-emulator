@@ -15,7 +15,9 @@ concurrency:
 
 jobs:
   conformance:
-    runs-on: ubuntu-latest
+    # --- CI RUNNER: swap the two lines below to go back to GitHub-hosted ---
+    # runs-on: ubuntu-latest
+    runs-on: [self-hosted]   # TEMP: GH Actions minutes out — org self-hosted runners (restore the line above to revert)
     steps:
       - name: Checkout (with submodules)
         uses: actions/checkout@v4
