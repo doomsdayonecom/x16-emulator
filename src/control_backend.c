@@ -205,13 +205,26 @@ x16_get_pointer(int32_t *x, int32_t *y, int *buttons)
  *   bit  0    1     2   3     4  5  6  7  8      9       10  11
  *        LEFT RIGHT UP  DOWN  A  B  X  Y  START  SELECT  L   R
  *
- * The X16's SNES pad disagrees on both counts — its own bit order is
- * A X SELECT START UP DOWN LEFT RIGHT B Y L R, and its mask is ACTIVE
- * LOW. Converting here is exactly what the spec asks of a backend
- * whose hardware differs; the harness never learns about it. */
+ * The X16's SNES pad disagrees on both counts, and its mask is ACTIVE
+ * LOW. Converting here is exactly what the spec asks of a backend whose
+ * hardware differs; the harness never learns about it.
+ *
+ * The X16 side is the SNES SERIAL order — the order bits leave the
+ * shift register, which is what the KERNAL reassembles:
+ *
+ *   bit  0  1  2       3      4   5     6     7      8  9  10 11
+ *        B  Y  SELECT  START  UP  DOWN  LEFT  RIGHT  A  X  L  R
+ *
+ * Read that off joystick.c's button_map[] with care: its comments name
+ * SDL buttons, not SNES ones, and the two disagree where it matters.
+ * SDL's A is the BOTTOM button, which is SNES B — so button_map's
+ * `1 << 0 //SDL_CONTROLLER_BUTTON_A` is bit 0 = SNES **B**. Taking
+ * those comments at face value swaps A<->B and X<->Y, which is exactly
+ * the bug this table shipped with until it was checked against the
+ * game's own joystick word rather than against a read-back. */
 static const uint8_t pad_canon_to_x16[12] = {
 	6,  /* LEFT   */ 7,  /* RIGHT  */ 4,  /* UP     */ 5,  /* DOWN   */
-	0,  /* A      */ 8,  /* B      */ 1,  /* X      */ 9,  /* Y      */
+	8,  /* A      */ 0,  /* B      */ 9,  /* X      */ 1,  /* Y      */
 	3,  /* START  */ 2,  /* SELECT */ 10, /* L      */ 11, /* R      */
 };
 
