@@ -32,15 +32,26 @@ x16_read_mem(uint32_t addr, int32_t bank, uint32_t len, uint8_t *out, uint32_t c
 	return n;
 }
 
-/* Write (poke) len bytes at addr (0.3), through the same bus a CPU write uses.
- * Low RAM ($0000-$9EFF) is flat; banked RAM ($A000-$BFFF) hits the current RAM
- * bank on gen1 (write6502 forces bank 0 there) or the flat bank on gen2. */
+/* Write (poke) len bytes at addr (0.3). Low RAM ($0000-$9EFF) goes through the
+ * same bus a CPU write uses. Banked RAM ($A000-$BFFF) with an explicit bank= is
+ * written into that bank's backing store directly, the mirror of what
+ * x16_read_mem does through debug_read6502: write6502's bank argument is the
+ * gen2 flat bank and is forced to 0 on gen1, so routing a banked poke through
+ * it wrote whatever bank the CPU had mapped at the pause — the KERNAL's IRQ
+ * handler maps bank 0, and a harness write for a tenant vanished into it.
+ * Without bank= the poke still hits the current bank, as a CPU write would. */
 static uint32_t
 x16_write_mem(uint32_t addr, int32_t bank, uint32_t len, const uint8_t *in)
 {
-	uint8_t x16bank = (bank >= 0) ? (uint8_t)bank : 0;
 	for (uint32_t i = 0; i < len; i++) {
-		write6502((uint16_t)(addr + i), x16bank, in[i]);
+		uint16_t a = (uint16_t)(addr + i);
+		if (bank >= 0 && a >= 0xa000 && a < 0xc000) {
+			if ((uint32_t)bank < (uint32_t)num_ram_banks) {
+				BRAM[((uint32_t)bank << 13) + a - 0xa000] = in[i];
+			}
+			continue;
+		}
+		write6502(a, 0, in[i]);
 	}
 	return len;
 }
