@@ -218,11 +218,13 @@ jobs:
       # The self-hosted runners have Docker and no sudo, so the build runs in
       # a stock Debian with SDL2 installed; what it writes is handed back to
       # the user that owns the checkout, so the next checkout can clean it.
+      # Not a TRACE build: that wants the ROM's label file from the x16-rom
+      # artifacts, which is the lane the runs-on line above restores.
       - name: Build Emulator
         run: |
           docker run --rm -v "$PWD:/src" -w /src -e OWNER="$(id -u):$(id -g)" debian:bookworm-slim sh -c '
             apt-get update -q && apt-get install -y -q --no-install-recommends build-essential make libsdl2-dev zlib1g-dev file >/dev/null &&
-            TRACE=1 make V=1 -j3 &&
+            make V=1 -j3 &&
             mkdir -p emu_binaries && cp sdcard.img.zip x16emu makecart emu_binaries/ && file emu_binaries/*;
             status=$?; chown -R "$OWNER" /src; exit $status'
       - uses: actions/upload-artifact@v4
