@@ -24,15 +24,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install build + test deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential make libsdl2-dev zlib1g-dev python-is-python3 python3-venv
-          python3 -m venv .venv
-          ./.venv/bin/pip install --quiet pytest
-
+      # The self-hosted runners have Docker and no sudo: the build and the
+      # suite run in a stock Debian with SDL2 and pytest, and what they write
+      # is handed back to the user that owns the checkout.
       - name: Build x16emu
-        run: make
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src -e OWNER="$(id -u):$(id -g)" debian:bookworm-slim sh -c '
+            apt-get update -q && apt-get install -y -q --no-install-recommends build-essential make libsdl2-dev zlib1g-dev >/dev/null &&
+            make -j3; status=$?; chown -R "$OWNER" /src; exit $status'
 
       - name: Generate a dummy ROM
         # Conformance exercises the control API, not ROM behaviour, so a
@@ -40,9 +39,10 @@ jobs:
         run: truncate -s 262144 rom.bin
 
       - name: Run conformance suite
-        working-directory: src/extern/retro-remote-debug-controller/conformance
-        env:
-          RRDC_PORT: "8080"
-          RRDC_BOOT_TIMEOUT: "30"
-          RRDC_EMU_CMD: "SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy ${{ github.workspace }}/x16emu -rom ${{ github.workspace }}/rom.bin -warp -controlport {port}"
-        run: ${{ github.workspace }}/.venv/bin/python -m pytest -v
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src/src/extern/retro-remote-debug-controller/conformance -e OWNER="$(id -u):$(id -g)" \
+            -e RRDC_PORT=8080 -e RRDC_BOOT_TIMEOUT=30 \
+            -e RRDC_EMU_CMD="SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy /src/x16emu -rom /src/rom.bin -warp -controlport {port}" \
+            debian:bookworm-slim sh -c '
+              apt-get update -q && apt-get install -y -q --no-install-recommends libsdl2-2.0-0 python3 python3-pytest >/dev/null &&
+              python3 -m pytest -v -p no:cacheprovider; status=$?; chown -R "$OWNER" /src; exit $status' 
