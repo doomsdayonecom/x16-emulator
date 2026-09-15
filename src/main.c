@@ -43,6 +43,7 @@
 #include "testbench.h"
 #include "cartridge.h"
 #include "midi.h"
+#include "netcard.h"
 #include "retro_control.h"
 
 int x16_control_start(int port);   // control_backend.c
@@ -343,6 +344,7 @@ machine_reset()
 	mouse_state_init();
 	reset6502(regs.is65c816);
 	midi_serial_init();
+	netcard_init();
 }
 
 void
@@ -539,6 +541,11 @@ usage()
 	printf("\tSuppress warning emitted when encountering a Rockwell extension on the 65C02\n");
 	printf("-longpwron\n");
 	printf("\tSimulate a long press of the power button at system power-on.\n");
+	printf("-netcard [<address>]\n");
+	printf("\tInstall a virtual serial/network card at the specified address, or at $9F60\n");
+	printf("\tby default: a 16450 UART with a Hayes modem behind it whose dial opens a\n");
+	printf("\treal TCP connection from the emulator (ATD\"host:port\"). For testing\n");
+	printf("\tprograms written against the TexElec serial/ESP32 card.\n");
 	printf("-midicard [<address>]\n");
 	printf("\tInstall a serial MIDI card at the specified address, or at $9F60 by default.\n");
 	printf("\tThe -sf2 option must be specified along with this option.\n");
@@ -684,6 +691,18 @@ main(int argc, char **argv)
 			prg_path = argv[0];
 			argc--;
 			argv++;
+		} else if (!strcmp(argv[0], "-netcard")) {
+			argc--;
+			argv++;
+			has_netcard = true;
+			if (argc && argv[0][0] != '-') {
+				netcard_addr = 0x9f00 | ((uint16_t)strtol(argv[0], NULL, 16) & 0xff);
+				netcard_addr &= 0xfff0;
+				argc--;
+				argv++;
+			} else {
+				netcard_addr = 0x9f60;
+			}
 		} else if (!strcmp(argv[0], "-midicard")) {
 #ifndef HAS_FLUIDSYNTH
 			no_fluidsynth_warning();
@@ -1754,6 +1773,9 @@ emulator_loop(void *param)
 
 		if (new_frame) {
 			retro_control_on_frame();
+			if (has_netcard) {
+				netcard_step();
+			}
 		}
 
 		for (uint32_t i = 0; i < clocks; i++) {
