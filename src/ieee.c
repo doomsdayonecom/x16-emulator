@@ -299,6 +299,30 @@ u8compare_utf8_char_i(uint8_t *str1, uint8_t *str2, int *off1, int *off2)
 }
 
 
+// Step over a DOS command's VERB so what is left is the argument
+// parse_dos_filename() expects.
+//
+// The ROM's parser is handed the argument, never the command: copen() passes a
+// channel name, which has no verb in front of it. The command-channel verbs do,
+// and the argument is CONCATENATED to them -- "S//DIR/:NAME" is the verb 'S'
+// followed by the path "//DIR/" and the name. So a caller that passes the whole
+// command gets its path silently dropped, because parse_dos_filename looks for a
+// '/' at the START of what it was given and finds a letter.
+//
+// Verbs are letters ("S", "SCRATCH", "R", "RENAME"), and an argument never
+// begins with one: it begins with '@', a media digit, '/' or ':'. So skipping
+// the leading letters is exactly right, and it is what makes the long spellings
+// work as well as the short ones.
+static uint8_t *
+dos_command_arg(uint8_t *cmd)
+{
+	uint8_t *p = cmd;
+	while ((*p >= 'A' && *p <= 'Z') || (*p >= 'a' && *p <= 'z')) {
+		p++;
+	}
+	return p;
+}
+
 static uint8_t *
 parse_dos_filename(const uint8_t *name, bool dirhandling)
 {
@@ -1356,58 +1380,73 @@ cmkdir(uint8_t *dir)
 static void
 crename(uint8_t *f)
 {
-	// This function receives the whole R command, which could be
-	// "R:NEW=OLD" or "RENAME:NEW=OLD" or anything in between
-	// let's simply find the first colon and chop it there
-	uint8_t *tmp = malloc(u8strlen(f)+1);
+	// This function receives the whole R command -- "R:NEW=OLD",
+	// "RENAME:NEW=OLD" or anything in between -- and now, like the ROM's DOS,
+	// a PATH on either side of the '=':
+	//
+	//     "R:NEW.PRG=OLD.PRG"                       in the current directory
+	//     "R//DIR/:NEW.PRG=//DIR/:OLD.PRG"          absolute, both sides
+	//
+	// dos/parser.s's cmd_rename splits at the '=' and calls get_path_and_name
+	// on EACH half, so each half carries its own path on real hardware. This
+	// used to chop the whole command at the FIRST colon instead -- which, with
+	// a path in the destination, is the colon inside that path. The two halves
+	// then meant something else entirely and the rename failed (or, worse for
+	// the S command next door, succeeded on the wrong file).
+	uint8_t *arg = dos_command_arg(f);
+	uint8_t *tmp = malloc(u8strlen(arg)+1);
 	if (tmp == NULL) {
 		set_error(0x70, 0, 0);
 		return;
 	}
-	u8strcpy(tmp,f);
-	uint8_t *d = u8strchr(tmp,':');
+	u8strcpy(tmp, arg);
 
-	if (d == NULL) {
-		// No colon, not a valid rename command
-		free(tmp);
-		set_error(0x34, 0, 0);
-		return;
-	}
+	uint8_t *eq = u8strchr(tmp,'=');
 
-	d++; // one character after the colon
-
-	// Now split on the = sign to find
-	uint8_t *s = u8strchr(d,'=');
-
-	if (s == NULL) {
+	if (eq == NULL) {
 		// No equals sign, not a valid rename command
 		free(tmp);
 		set_error(0x34, 0, 0);
 		return;
 	}
 
-	*(s++) = 0; // null-terminate d and advance s
-	
+	*(eq++) = 0;		// terminate the destination, advance to the source
+
+	uint8_t *dstname = parse_dos_filename(tmp, false);
+	uint8_t *srcname = parse_dos_filename(eq, false);
+
+	free(tmp);
+
+	if (dstname == NULL || srcname == NULL) {
+		if (dstname) free(dstname);
+		if (srcname) free(srcname);
+		set_error(0x34, 0, 0);
+		return;
+	}
+
 	uint8_t *src;
 	uint8_t *dst;
 
 	clear_error();
-	if ((src = resolve_path_iso(s, true, WILDCARD_ALL)) == NULL) {
+	if ((src = resolve_path_iso(srcname, true, WILDCARD_ALL)) == NULL) {
 		// source not found
-		free(tmp);
+		free(dstname);
+		free(srcname);
 		set_error(0x62, 0, 0);
 		return;
 	}
 
-	if ((dst = resolve_path_iso(d, false, WILDCARD_ALL)) == NULL) {
+	if ((dst = resolve_path_iso(dstname, false, WILDCARD_ALL)) == NULL) {
 		// dest not found
-		free(tmp);
+		free(dstname);
+		free(srcname);
 		free(src);
 		set_error(0x39, 0, 0);
 		return;
 	}
 
-	free(tmp); // we're now done with d and s (part of tmp)
+	free(dstname);
+	free(srcname);
 
 	if (rename((char *)src, (char *)dst)) {
 		if (errno == EACCES) {
@@ -1468,35 +1507,39 @@ static void
 cunlink(uint8_t *f)
 {
 	// This function receives the whole S command, which could be
-	// "S:FILENAME" or "SCRATCH:FILENAME" or anything in between
-	// let's simply find the first colon and chop it there
-	// TODO path syntax and multiple files
-	uint8_t *tmp = malloc(u8strlen(f)+1);
-	if (tmp == NULL) {
-		set_error(0x70, 0, 0);
-		return;
-	}
-	u8strcpy(tmp,f);
-	uint8_t *fn = u8strchr(tmp,':');
+	// "S:FILENAME" or "SCRATCH:FILENAME" or anything in between -- and,
+	// since it goes through parse_dos_filename() like copen() does, any of
+	// the PATH spellings the ROM's DOS accepts:
+	//
+	//     "S:FILE.PRG"              in the current directory
+	//     "S//DIR/:FILE.PRG"        absolute
+	//     "S/DIR/:FILE.PRG"         relative
+	//
+	// It used to chop at the first colon and hand what followed to
+	// resolve_path_iso(), which meant the colon INSIDE a path was taken for
+	// the name separator: "S//RPN/LIB/X/:GAME.PRG" scratched the current
+	// directory's GAME.PRG -- a DIFFERENT FILE -- if one happened to be
+	// there, and reported success. The ROM parses a path here
+	// (dos/parser.s, cmd_scratch -> get_path_and_name), so this now does
+	// the same thing through the same helper the OPEN path uses.
+	uint8_t *fn = parse_dos_filename(dos_command_arg(f), false);
 
 	if (fn == NULL) {
-		// No colon, not a valid scratch command
-		free(tmp);
+		// Didn't parse: no colon at all, or a mangled path
 		set_error(0x34, 0, 0);
 		return;
 	}
 
-	fn++; // one character after the colon
 	uint8_t *resolved;
 
 	clear_error();
 	if ((resolved = resolve_path_iso(fn, true, WILDCARD_PRG)) == NULL) {
-		free(tmp);
+		free(fn);
 		set_error(0x62, 0, 0);
 		return;
 	}
 
-	free(tmp); // we're now done with fn (part of tmp)
+	free(fn);
 
 	if (unlink((char *)resolved)) {
 		if (errno == EACCES) {
