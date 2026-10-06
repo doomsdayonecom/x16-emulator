@@ -41,6 +41,7 @@
 #include "version.h"
 #include "wav_recorder.h"
 #include "testbench.h"
+#include "coverage.h"
 #include "cartridge.h"
 #include "midi.h"
 #include "netcard.h"
@@ -496,6 +497,9 @@ usage()
 	printf("\tPrints warning to stdout if uninitialized RAM is accessed\n");
 	printf("-memorystats <file.txt>\n");
 	printf("\tSaves memory access statistics to the given file when emulator exits\n");
+	printf("-coverage <file>\n");
+	printf("\tRecord every address an instruction runs from, with its bank,\n");
+	printf("\tand write them to the given file on exit or SIGTERM\n");
 	printf("-dump {C|R|B|V}...\n");
 	printf("\tConfigure system dump: (C)PU, (R)AM, (B)anked-RAM, (V)RAM\n");
 	printf("\tMultiple characters are possible, e.g. -dump CV ; Default: RB\n");
@@ -1130,6 +1134,18 @@ main(int argc, char **argv)
 			argc--;
 			argv++;
 			exit(0);
+		} else if (!strcmp(argv[0], "-coverage")) {
+			argc--;
+			argv++;
+			if (!argc || argv[0][0] == '-') {
+				usage();
+			}
+			if (!coverage_init(argv[0])) {
+				printf("Cannot set up coverage for %s!\n", argv[0]);
+				exit(1);
+			}
+			argc--;
+			argv++;
 		} else if (!strcmp(argv[0], "-testbench")){
 			printf("Testbench mode...\n");
 			fflush(stdout);
@@ -1335,6 +1351,7 @@ main(int argc, char **argv)
 }
 
 void main_shutdown() {
+	coverage_write();
 	if (!headless){
 		wav_recorder_shutdown();
 		audio_close();
@@ -1621,6 +1638,7 @@ emulator_loop(void *param)
 {
 	uint32_t old_clockticks6502 = clockticks6502;
 	for (;;) {
+		if (coverage_stop) break;
 		if (smc_requested_reset) machine_reset();
 
 		retro_control_service();
@@ -1755,6 +1773,9 @@ emulator_loop(void *param)
 
 		instruction_counter += waiting ^ 0x1;
 
+		if (coverage_enabled && !waiting) {
+			coverage_mark(regs.pc);
+		}
 		step6502();
 		uint32_t clocks = clockticks6502 - old_clockticks6502;
 		old_clockticks6502 = clockticks6502;
